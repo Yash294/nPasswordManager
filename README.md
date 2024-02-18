@@ -22,7 +22,7 @@ To run the code, move to the ```nPasswordManager/server``` directory and run the
 
 ## Future
 
-I am currently working on adding functionality to verify a password, remove and list the hashed passwords. I want to be able to then connect a database to store these different files.
+I am currently working on adding functionality and endpoints to verify a password, remove and list the hashed passwords. I want to be able to then connect a database to store these different files.
 
 If I had multiple systems, I would have liked to take advantage of Hadoop or Spark to streamline the distribution.
 
