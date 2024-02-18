@@ -3,9 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 	"yash294/nPasswordManager/server/models"
 )
 
@@ -14,16 +14,21 @@ const (
 	NumParts    = 3
 )
 
-func distributeAndSavePassword(userID, password string) error {
+func distributeAndSavePassword(userID, passwordID, password string) error {
 	passwordParts := splitPassword(password)
 
 	for i, part := range passwordParts {
-		partFilename := fmt.Sprintf("%s_%d.json", userID, i+1)
-		partData, err := json.Marshal(models.Password{ID: userID, Part: i + 1, Password: []byte(part)})
+		partFilename := fmt.Sprintf("%s_%s_%d.json", userID, passwordID, i+1)
+		partData, err := json.Marshal(models.Password{UserID: userID, PasswordID: passwordID, Part: i + 1, Password: part})
 		if err != nil {
 			return fmt.Errorf("failed to marshal password part to JSON: %v", err)
 		}
-		if err := ioutil.WriteFile(StoragePath+partFilename, partData, 0644); err != nil {
+		file, err := os.Create(StoragePath + partFilename)
+		if err != nil {
+			return fmt.Errorf("failed to create password part file: %v", err)
+		}
+		defer file.Close()
+		if _, err := file.Write(partData); err != nil {
 			return fmt.Errorf("failed to write password part to file: %v", err)
 		}
 	}
@@ -46,13 +51,6 @@ func splitPassword(password string) []string {
 	return passwordParts
 }
 
-func main() {
-	os.Mkdir(StoragePath, os.ModePerm)
-
-	http.HandleFunc("/passwords", handlePasswords)
-	http.ListenAndServe(":8080", nil)
-}
-
 func handlePasswords(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -64,14 +62,14 @@ func handlePasswords(w http.ResponseWriter, r *http.Request) {
 }
 
 func createPassword(w http.ResponseWriter, r *http.Request) {
-	var password models.Password
-	if err := json.NewDecoder(r.Body).Decode(&password); err != nil {
+	var passwordPart models.Password
+	if err := json.NewDecoder(r.Body).Decode(&passwordPart); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "Failed to decode request body: %v", err)
 		return
 	}
 
-	if err := distributeAndSavePassword(password.ID, string(password.Password)); err != nil {
+	if err := distributeAndSavePassword(passwordPart.UserID, passwordPart.PasswordID, passwordPart.Password); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Failed to distribute and save password: %v", err)
 		return
@@ -80,13 +78,64 @@ func createPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+func verifyPassword(userID, passwordID string) (bool, error) {
+	files, err := os.ReadDir(StoragePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read passwords directory: %v", err)
+	}
+	for _, file := range files {
+		filename := file.Name()
+		if strings.HasPrefix(filename, userID+"_"+passwordID+"_") && strings.HasSuffix(filename, ".json") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
+func removePassword(userID, passwordID string) error {
+	files, err := os.ReadDir(StoragePath)
+	if err != nil {
+		return fmt.Errorf("failed to read passwords directory: %v", err)
+	}
+	for _, file := range files {
+		filename := file.Name()
+		if strings.HasPrefix(filename, userID+"_"+passwordID+"_") && strings.HasSuffix(filename, ".json") {
+			err := os.Remove(StoragePath + filename)
+			if err != nil {
+				return fmt.Errorf("failed to remove password part file %s: %v", filename, err)
+			}
+		}
+	}
+	return nil
+}
 
-// user could send password and I need to check if password exists
-func verifyPassword() {}
+func readHashedPasswords(userID, passwordID string) ([]models.Password, error) {
+	var passwordParts []models.Password
 
-// remove password http handler
-func removePassword() {}
+	files, err := os.ReadDir(StoragePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read passwords directory: %v", err)
+	}
+	for _, file := range files {
+		filename := file.Name()
+		if strings.HasPrefix(filename, userID+"_"+passwordID+"_") && strings.HasSuffix(filename, ".json") {
+			fileContents, err := os.ReadFile(StoragePath + filename)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read file %s: %v", filename, err)
+			}
+			var passwordPart models.Password
+			if err := json.Unmarshal(fileContents, &passwordPart); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal JSON from file %s: %v", filename, err)
+			}
+			passwordParts = append(passwordParts, passwordPart)
+		}
+	}
+	return passwordParts, nil
+}
 
-// list all of user passwords
-func readHashedPasswords() {}
+func main() {
+	os.Mkdir(StoragePath, os.ModePerm)
+
+	http.HandleFunc("/passwords", handlePasswords)
+	http.ListenAndServe(":8080", nil)
+}

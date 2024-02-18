@@ -1,8 +1,8 @@
 package models
 
 type Password struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Part 	 int	`json:"part"`
-	Password []byte `json:"password"`
+	UserID     string `json:"userID"`
+	PasswordID string `json:"passwordID"`
+	Part       int    `json:"part"`
+	Password   string `json:"password"`
 }
